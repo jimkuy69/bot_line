@@ -1,4 +1,3 @@
 import {readFile} from "node:fs/promises";
 import {query,pool} from "./db.js";
-const sql=await readFile(new URL("../sql/001_init.sql",import.meta.url),"utf8");
-await query(sql);console.log("Migration applied");await pool.end();
+for(const n of ["001_init.sql","002_features.sql"]){const sql=await readFile(new URL("../sql/"+n,import.meta.url),"utf8");await query(sql);console.log("Applied "+n);}await pool.end();
