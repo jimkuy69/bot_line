@@ -8,7 +8,7 @@ import {query,pool} from "./db.js";
 import {dispatchOutbox} from "./delivery.js";
 import {getAgent,saveDraft,publishDraft,rollbackVersion,mockPreview} from "./agent-config.js";
 const app=Fastify({logger:true,bodyLimit:1024*1024});await app.register(helmet);
-app.addContentTypeParser("application/json",{parseAs:"buffer"},(req,body,done)=>{try{const raw=body as Buffer;(req as typeof req & {rawBody:Buffer}).rawBody=raw;done(null,JSON.parse(raw.toString("utf8")));}catch(err){done(err as Error,undefined);}});
+app.addContentTypeParser("application/json",{parseAs:"buffer"},(req,body,done)=>{try{const raw=body as Buffer;(req as typeof req & {rawBody:Buffer}).rawBody=raw;done(null,raw.length?JSON.parse(raw.toString("utf8")):{});}catch(err){done(err as Error,undefined);}});
 app.get("/dashboard",async(_req,res)=>{const html=await readFile(new URL("../public/dashboard.html",import.meta.url),"utf8");return res.header("Cache-Control","no-store").type("text/html").send(html);});
 app.get("/health",async()=>({status:"ok"}));
 app.get("/ready",async(_req,res)=>{try{await query("SELECT 1");return {status:"ready"};}catch{return res.code(503).send({status:"not_ready"});}});
@@ -28,5 +28,5 @@ app.delete<{Params:{id:string}}>("/admin/knowledge/:id",async(req,res)=>{const r
 app.post<{Params:{id:string};Body:{mode?:string}}>("/admin/conversations/:id/mode",async(req,res)=>{if(!["AI","HUMAN"].includes(req.body?.mode||""))return res.code(400).send({error:"invalid mode"});const r=await query("UPDATE conversations SET mode=$2,updated_at=now() WHERE id=$1 RETURNING id,mode",[req.params.id,req.body.mode]);if(!r.rowCount)return res.code(404).send({error:"not found"});await query("INSERT INTO audit_logs(actor,action,detail) VALUES('admin','CHANGE_MODE',$1::jsonb)",[JSON.stringify({id:req.params.id,mode:req.body.mode})]);return r.rows[0];});
 app.post<{Params:{id:string};Body:{text?:string}}>("/admin/conversations/:id/reply",async(req,res)=>{const content=req.body?.text?.trim();if(!content||content.length>4500)return res.code(400).send({error:"invalid text"});const r=await query<{line_user_id:string;channel_id:string}>("SELECT c.line_user_id,c.channel_id FROM conversations v JOIN contacts c ON v.contact_id=c.id WHERE v.id=$1 AND v.mode='HUMAN'",[req.params.id]);if(!r.rows[0])return res.code(409).send({error:"not in HUMAN mode"});const id=randomUUID();await query("INSERT INTO outbox(id,dedupe_key,target_user_id,channel_id,body) VALUES($1,$2,$3,$4,$5)",[id,id,r.rows[0].line_user_id,r.rows[0].channel_id,content]);await query("INSERT INTO messages(conversation_id,direction,sender,content) VALUES($1,'OUT','ADMIN',$2)",[req.params.id,content]);return res.code(202).send({queued:true,id});});
 app.post("/admin/dispatch",async()=>({sent:await dispatchOutbox()}));
-await app.listen({host:"0.0.0.0",port:config.PORT});
+await app.listen({host:"127.0.0.1",port:config.PORT});
 process.on("SIGTERM",async()=>{await app.close();await pool.end();});

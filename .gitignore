@@ -5,3 +5,6 @@ dist/
 !.env.example
 coverage/
 *.log
+.local-pg/
+.local-secrets/
+.env.backup*
