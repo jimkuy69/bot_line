@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lineai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set_password}
+      POSTGRES_DB: lineai
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lineai -d lineai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  dbdata:
