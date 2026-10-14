@@ -4,6 +4,7 @@ import {knowledgeFor,knowledgeInstructions} from "./knowledge.js";
 import type {LineEvent} from "./line.js";
 import {config} from "./config.js";
 import {dispatchOutbox} from "./delivery.js";
+import {activeAgent} from "./agent-config.js";
 export {dispatchOutbox};
 export async function handleEvent(event:LineEvent){
  const id=event.webhookEventId;if(!id)return;
@@ -23,7 +24,8 @@ export async function handleEvent(event:LineEvent){
  const history=rows.rows.map(m=>({role:m.sender==="USER"?"user" as const:"assistant" as const,content:m.content}));
  const cfg=await query<{persona:string;auto_reply:boolean}>("SELECT persona,auto_reply FROM settings WHERE channel_id=$1",[channel]);
  const facts=await knowledgeFor(channel);
- const result=content?await decide(history,cfg.rows[0]?.persona||"",knowledgeInstructions(facts)):{answer:"รับข้อความแล้วครับ ผมจะส่งให้เจ้าหน้าที่ตรวจสอบต่อครับ",escalate:true,reason:"UNSUPPORTED_MESSAGE"};
+ const active=await activeAgent();
+ const result=content?(active&&!active.enabled?{answer:"AI ปิดอยู่ กรุณารอเจ้าหน้าที่ครับ",escalate:true,reason:"AI_DISABLED"}:await decide(history,active?.persona||cfg.rows[0]?.persona||"",knowledgeInstructions(facts),active?.model)):{answer:"รับข้อความแล้วครับ ผมจะส่งให้เจ้าหน้าที่ตรวจสอบต่อครับ",escalate:true,reason:"UNSUPPORTED_MESSAGE"};
  // Persist outcomes in a transaction? Message and outbox insertion are idempotent by webhook event ID.
  await query("INSERT INTO messages(conversation_id,direction,sender,content,line_message_id) VALUES($1,'OUT','AI',$2,$3) ON CONFLICT(line_message_id) DO NOTHING",[c.id,result.answer,"ai:"+id]);
  await query("INSERT INTO outbox(dedupe_key,target_user_id,channel_id,body) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",[id+":customer",userId,channel,result.answer]);
