@@ -4,7 +4,7 @@ import {knowledgeFor,knowledgeInstructions} from "./knowledge.js";
 import type {LineEvent} from "./line.js";
 import {config} from "./config.js";
 import {dispatchOutbox} from "./delivery.js";
-import {activeAgent} from "./agent-config.js";
+import {activeAgent,mockPreview} from "./agent-config.js";
 export {dispatchOutbox};
 export async function handleEvent(event:LineEvent){
  const id=event.webhookEventId;if(!id)return;
@@ -25,12 +25,12 @@ export async function handleEvent(event:LineEvent){
  const cfg=await query<{persona:string;auto_reply:boolean}>("SELECT persona,auto_reply FROM settings WHERE channel_id=$1",[channel]);
  const facts=await knowledgeFor(channel);
  const active=await activeAgent();
- const result=content?(active&&!active.enabled?{answer:"AI ปิดอยู่ กรุณารอเจ้าหน้าที่ครับ",escalate:true,reason:"AI_DISABLED"}:await decide(history,active?.persona||cfg.rows[0]?.persona||"",knowledgeInstructions(facts),active?.model)):{answer:"รับข้อความแล้วครับ ผมจะส่งให้เจ้าหน้าที่ตรวจสอบต่อครับ",escalate:true,reason:"UNSUPPORTED_MESSAGE"};
+ const result=content?(active&&!active.enabled?{answer:"AI ปิดอยู่ กรุณารอเจ้าหน้าที่ครับ",escalate:true,reason:"AI_DISABLED"}:(config.AI_MODE==="mock"?mockPreview(content,active?.persona||""):await decide(history,active?.persona||cfg.rows[0]?.persona||"",knowledgeInstructions(facts),active?.model))):{answer:"รับข้อความแล้วครับ ผมจะส่งให้เจ้าหน้าที่ตรวจสอบต่อครับ",escalate:true,reason:"UNSUPPORTED_MESSAGE"};
  // Persist outcomes in a transaction? Message and outbox insertion are idempotent by webhook event ID.
  await query("INSERT INTO messages(conversation_id,direction,sender,content,line_message_id) VALUES($1,'OUT','AI',$2,$3) ON CONFLICT(line_message_id) DO NOTHING",[c.id,result.answer,"ai:"+id]);
  await query("INSERT INTO outbox(dedupe_key,target_user_id,channel_id,body) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",[id+":customer",userId,channel,result.answer]);
  if(result.escalate){
- const summary=await summarize(history);
+ const summary=config.AI_MODE==="mock"?"[MOCK SUMMARY] "+history.filter(x=>x.role==="user").map(x=>x.content).slice(-3).join(" | ").slice(0,1000):await summarize(history);
  const caseRow=await query<{id:string}>("INSERT INTO support_cases(conversation_id,summary) VALUES($1,$2) ON CONFLICT(conversation_id) WHERE status='OPEN' DO UPDATE SET summary=EXCLUDED.summary RETURNING id",[c.id,summary]);
  await query("INSERT INTO summaries(conversation_id,body) VALUES($1,$2)",[c.id,summary]);
  await query("UPDATE conversations SET mode='HUMAN',updated_at=now() WHERE id=$1",[c.id]);

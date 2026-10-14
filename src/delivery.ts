@@ -12,7 +12,7 @@ export async function deliver(to:string,text:string,id:string):Promise<DeliveryR
  }catch{return {outcome:"uncertain"};}
 }
 export async function dispatchOutbox(){
- if(config.AUTO_REPLY_ENABLED!=="true")return 0;
+ if(config.AUTO_REPLY_ENABLED!=="true"||config.AI_MODE==="mock")return 0;
  const rows=await query<{id:string;target_user_id:string;body:string;created_at:Date}>("UPDATE outbox SET status='SENDING',claimed_at=now(),attempts=attempts+1 WHERE id IN (SELECT id FROM outbox WHERE ((status='PENDING' AND next_attempt_at<=now()) OR (status='SENDING' AND claimed_at<now()-interval '2 minutes')) AND attempts<4 AND created_at>now()-interval '23 hours' ORDER BY created_at LIMIT 15 FOR UPDATE SKIP LOCKED) RETURNING id,target_user_id,body,created_at");
  let sent=0;
  for(const row of rows.rows){
